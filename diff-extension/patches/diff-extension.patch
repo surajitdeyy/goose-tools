@@ -1,0 +1,88 @@
+diff --git a/original/ToolCallWithResponse.tsx b/original/ToolCallWithResponse.tsx
+index 2d01886..636c05d 100644
+--- a/original/ToolCallWithResponse.tsx
++++ b/original/ToolCallWithResponse.tsx
+@@ -22,6 +22,7 @@ import { CallToolResponse, ContentBlock, EmbeddedResource } from '../api';
+ 
+ import McpAppRenderer from './McpApps/McpAppRenderer';
+ import ToolApprovalButtons from './ToolApprovalButtons';
++import { DiffViewer } from './DiffViewer';
+ import { defineMessages, useIntl } from '../i18n';
+ 
+ const i18n = defineMessages({
+@@ -267,6 +268,7 @@ export default function ToolCallWithResponse({
+             toolResponse,
+             notifications,
+             isStreamingMessage,
++            isPendingApproval,
+           }}
+         />
+         {/* Inline approval UI */}
+@@ -378,6 +380,7 @@ interface ToolCallViewProps {
+   toolResponse?: ToolResponseMessageContent;
+   notifications?: NotificationEvent[];
+   isStreamingMessage?: boolean;
++  isPendingApproval?: boolean;
+ }
+ 
+ interface Progress {
+@@ -504,6 +507,7 @@ function ToolCallView({
+   toolResponse,
+   notifications,
+   isStreamingMessage = false,
++  isPendingApproval = false,
+ }: ToolCallViewProps) {
+   const intl = useIntl();
+   const [responseStyle, setResponseStyle] = useState<string>('concise');
+@@ -603,6 +607,10 @@ function ToolCallView({
+ 
+     // Generate descriptive text based on tool type
+     switch (toolName) {
++      case 'edit':
++        if (args.path) return `editing ${getStringValue(args.path)}`;
++        break;
++
+       case 'text_editor':
+         if (args.command === 'write' && args.path) {
+           return `writing ${getStringValue(args.path)}`;
+@@ -811,7 +819,7 @@ function ToolCallView({
+   );
+   return (
+     <ToolCallExpandable
+-      isStartExpanded={isRenderingProgress || isExpandToolDetails}
++      isStartExpanded={isRenderingProgress || isExpandToolDetails || isPendingApproval}
+       isForceExpand={false}
+       label={
+         extensionTooltip ? (
+@@ -838,6 +846,19 @@ function ToolCallView({
+           );
+         }
+ 
++        if (toolCall.name === 'edit') {
++          const before = toolCall.arguments?.before as string | undefined;
++          const after = toolCall.arguments?.after as string | undefined;
++          const path = toolCall.arguments?.path as string | undefined;
++          if (typeof before === 'string' && typeof after === 'string') {
++            return (
++              <div className="border-t border-border-primary">
++                <DiffViewer oldValue={before} newValue={after} fileName={path} />
++              </div>
++            );
++          }
++        }
++
+         if (isToolDetails) {
+           return (
+             <div className="border-t border-border-primary">
+diff --git a/original/toolIconMapping.tsx b/original/toolIconMapping.tsx
+index 9e7b03d..5a9226e 100644
+--- a/original/toolIconMapping.tsx
++++ b/original/toolIconMapping.tsx
+@@ -32,6 +32,7 @@ export const getToolIcon = (toolName: string): React.ComponentType<ToolIconProps
+   switch (toolName) {
+     // Developer Extension Tools
+     case 'text_editor':
++    case 'edit':
+       return FileEdit;
+     case 'shell':
+       return Terminal;
