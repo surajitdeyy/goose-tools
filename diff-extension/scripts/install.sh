@@ -162,22 +162,88 @@ add_dependency() {
   fi
 }
 
-# Install npm dependencies
-install_deps() {
+# Install the diff npm package
+# Tries pnpm first, falls back to direct npm pack + extract if pnpm fails
+install_diff_package() {
   local repo="$1"
   local desktop_dir="${repo}/ui/desktop"
+  local node_modules="${desktop_dir}/node_modules"
 
-  log_info "Installing npm dependencies..."
-  log_info "Running: cd ${desktop_dir} && pnpm install"
+  log_info "Installing 'diff' npm package..."
 
-  cd "$desktop_dir"
-  if pnpm install 2>&1; then
-    log_info "  ✓ Dependencies installed successfully"
+  # Check if diff is already installed in node_modules
+  if [ -f "${node_modules}/diff/package.json" ]; then
+    local installed_ver
+    installed_ver=$(grep '"version"' "${node_modules}/diff/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+    if [ "$installed_ver" = "9.0.0" ]; then
+      log_info "  ✓ diff@9.0.0 already installed in node_modules"
+      return 0
+    else
+      log_warn "  diff@${installed_ver} found, replacing with 9.0.0..."
+      rm -rf "${node_modules}/diff"
+    fi
+  fi
+
+  # Method 1: Try pnpm install (the proper way)
+  if command -v pnpm &>/dev/null; then
+    log_info "  Trying pnpm install..."
+    if (cd "$desktop_dir" && pnpm install --no-frozen-lockfile 2>&1) | tail -5; then
+      if [ -f "${node_modules}/diff/package.json" ]; then
+        log_info "  ✓ diff installed via pnpm"
+        return 0
+      fi
+    fi
+    log_warn "  pnpm install did not install diff (may have pre-existing issues in the goose repo)"
   else
-    log_error "pnpm install failed. You may need to run it manually."
-    log_error "  cd ${desktop_dir} && pnpm install"
+    log_warn "  pnpm not found in PATH"
+  fi
+
+  # Method 2: Install diff directly using npm pack + extract
+  # This bypasses pnpm entirely and only installs the one package we need
+  log_info "  Installing diff directly into node_modules..."
+
+  # Find a working npm/npx
+  local npm_cmd=""
+  if command -v npm &>/dev/null; then
+    npm_cmd="npm"
+  elif command -v npx &>/dev/null; then
+    npm_cmd="npx"
+  else
+    # Try hermit-managed node (goose's own node distribution)
+    if [ -f "$HOME/.config/goose/mcp-hermit/bin/npm" ]; then
+      npm_cmd="$HOME/.config/goose/mcp-hermit/bin/npm"
+    elif [ -f "$HOME/.config/goose/mcp-hermit/bin/npx" ]; then
+      npm_cmd="$HOME/.config/goose/mcp-hermit/bin/npx"
+    fi
+  fi
+
+  if [ -z "$npm_cmd" ]; then
+    log_error "  No npm/npx found. Cannot install diff package."
+    log_error "  Please install Node.js and run: cd ${desktop_dir} && npm install diff@9.0.0"
     exit 1
   fi
+
+  log_info "  Using: $npm_cmd"
+
+  # Download and extract diff package directly
+  local tmp_dir=$(mktemp -d)
+  trap "rm -rf $tmp_dir" EXIT
+
+  if "$npm_cmd" pack diff@9.0.0 --pack-destination "$tmp_dir" 2>&1 | grep -v "^npm notice"; then
+    local tarball=$(ls "$tmp_dir"/diff-*.tgz 2>/dev/null | head -1)
+    if [ -n "$tarball" ]; then
+      mkdir -p "${node_modules}/diff"
+      tar xzf "$tarball" -C "${node_modules}/diff" --strip-components=1
+      if [ -f "${node_modules}/diff/package.json" ]; then
+        log_info "  ✓ diff@9.0.0 installed directly into node_modules"
+        return 0
+      fi
+    fi
+  fi
+
+  log_error "  Failed to install diff package."
+  log_error "  Please install it manually: cd ${desktop_dir} && npm install diff@9.0.0"
+  exit 1
 }
 
 # Print summary
@@ -195,7 +261,7 @@ print_summary() {
   echo "  • Updated: ui/desktop/package.json (added 'diff' dependency)"
   echo ""
   echo "To see diffs in action:"
-  echo "  1. Rebuild goose Desktop: cd <repo>/ui/desktop && pnpm run start"
+  echo "  1. Rebuild goose Desktop"
   echo "  2. When goose uses the 'edit' tool, expand the tool call"
   echo "  3. You'll see a unified diff with syntax highlighting"
   echo ""
@@ -220,7 +286,7 @@ main() {
   install_diffviewer "$repo"
   apply_patches "$repo"
   add_dependency "$repo"
-  install_deps "$repo"
+  install_diff_package "$repo"
   print_summary
 }
 

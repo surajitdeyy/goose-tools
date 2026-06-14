@@ -142,20 +142,18 @@ remove_dependency() {
   fi
 }
 
-# Reinstall npm dependencies
-reinstall_deps() {
+# Remove diff package from node_modules
+remove_diff_package() {
   local repo="$1"
-  local desktop_dir="${repo}/ui/desktop"
+  local node_modules="${repo}/ui/desktop/node_modules"
 
-  log_info "Reinstalling npm dependencies..."
-  log_info "Running: cd ${desktop_dir} && pnpm install"
+  log_info "Removing 'diff' package from node_modules..."
 
-  cd "$desktop_dir"
-  if pnpm install 2>&1; then
-    log_info "  ✓ Dependencies reinstalled successfully"
+  if [ -d "${node_modules}/diff" ]; then
+    rm -rf "${node_modules}/diff"
+    log_info "  ✓ Removed diff from node_modules"
   else
-    log_error "pnpm install failed. You may need to run it manually."
-    log_error "  cd ${desktop_dir} && pnpm install"
+    log_info "  - diff not found in node_modules (already removed)"
   fi
 }
 
@@ -172,6 +170,7 @@ print_summary() {
   echo "  • Restored: ui/desktop/src/components/ToolCallWithResponse.tsx"
   echo "  • Restored: ui/desktop/src/utils/toolIconMapping.tsx"
   echo "  • Restored: ui/desktop/package.json"
+  echo "  • Removed: node_modules/diff/"
   echo ""
   echo "To reinstall:"
   echo "  Run: ./install.sh [path-to-goose-repo]"
@@ -195,7 +194,7 @@ main() {
 
   remove_diffviewer "$repo"
   remove_dependency "$repo"
-  reinstall_deps "$repo"
+  remove_diff_package "$repo"
   print_summary
 }
 

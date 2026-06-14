@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# goose-tools - CLI wrapper for goose-tools extensions
+#
+# A unified command-line interface for installing and managing
+# community tools and extensions for the goose AI agent.
+#
+# Usage:
+#   goose-tools <command> [options]
+#
+# Commands:
+#   diff install [path]    Install the unified diff display extension
+#   diff uninstall [path]  Uninstall the unified diff display extension
+#   diff status [path]     Check if the diff extension is installed
+#   list                   List available extensions
+#   help                   Show this help message
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+print_banner() {
+  echo ""
+  echo -e "${CYAN}${BOLD}  🦆 goose-tools${NC}"
+  echo -e "  Community tools and extensions for goose"
+  echo ""
+}
+
+print_help() {
+  print_banner
+  echo -e "${BOLD}Usage:${NC}"
+  echo "  goose-tools <command> [options]"
+  echo ""
+  echo -e "${BOLD}Commands:${NC}"
+  echo "  diff install [path]    Install the unified diff display extension"
+  echo "  diff uninstall [path]  Uninstall the unified diff display extension"
+  echo "  diff status [path]     Check if the diff extension is installed"
+  echo "  list                   List available extensions"
+  echo "  help                   Show this help message"
+  echo ""
+  echo -e "${BOLD}Examples:${NC}"
+  echo "  goose-tools diff install              # Auto-detect goose repo"
+  echo "  goose-tools diff install ~/Code/goose # Specify goose repo path"
+  echo "  goose-tools diff uninstall            # Auto-detect goose repo"
+  echo "  goose-tools diff status               # Check installation status"
+  echo "  goose-tools list                      # See what's available"
+  echo ""
+}
+
+list_extensions() {
+  print_banner
+  echo -e "${BOLD}Available extensions:${NC}"
+  echo ""
+  echo -e "  ${CYAN}diff${NC}  - Unified diff display for goose Desktop"
+  echo "           Renders visual diffs with syntax highlighting inline"
+  echo "           in the chat window when goose uses the 'edit' tool."
+  echo "           Zero token impact — purely a client-side UI change."
+  echo ""
+  echo "Install with: goose-tools diff install [path-to-goose-repo]"
+  echo ""
+}
+
+diff_status() {
+  local repo="${1:-}"
+  local found_repo=""
+
+  # Try to find the repo
+  if [ -n "$repo" ]; then
+    if [ -d "$repo/ui/desktop/src/components" ]; then
+      found_repo="$repo"
+    else
+      echo -e "${RED}Error:${NC} '$repo' does not appear to be a goose repo"
+      exit 1
+    fi
+  else
+    for candidate in "$HOME/Code/goose" "$HOME/goose" "$HOME/projects/goose" "$HOME/src/goose" "$HOME/Development/goose"; do
+      if [ -d "$candidate/ui/desktop/src/components" ]; then
+        found_repo="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$found_repo" ]; then
+    echo -e "${YELLOW}No goose repo found. Provide a path: goose-tools diff status ~/Code/goose${NC}"
+    exit 0
+  fi
+
+  echo -e "${BOLD}Diff Extension Status${NC}"
+  echo "  Goose repo: $found_repo"
+  echo ""
+
+  local installed=true
+  local issues=""
+
+  # Check each component
+  if [ -f "$found_repo/ui/desktop/src/components/DiffViewer.tsx" ]; then
+    echo -e "  DiffViewer.tsx          ${GREEN}✓ installed${NC}"
+  else
+    echo -e "  DiffViewer.tsx          ${RED}✗ missing${NC}"
+    installed=false
+  fi
+
+  if [ -f "$found_repo/ui/desktop/src/components/__tests__/DiffViewer.test.tsx" ]; then
+    echo -e "  DiffViewer.test.tsx     ${GREEN}✓ installed${NC}"
+  else
+    echo -e "  DiffViewer.test.tsx     ${RED}✗ missing${NC}"
+    installed=false
+  fi
+
+  if grep -q "import { DiffViewer }" "$found_repo/ui/desktop/src/components/ToolCallWithResponse.tsx" 2>/dev/null; then
+    echo -e "  ToolCallWithResponse    ${GREEN}✓ patched${NC}"
+  else
+    echo -e "  ToolCallWithResponse    ${RED}✗ not patched${NC}"
+    installed=false
+  fi
+
+  if grep -q "'edit'" "$found_repo/ui/desktop/src/utils/toolIconMapping.tsx" 2>/dev/null; then
+    echo -e "  toolIconMapping         ${GREEN}✓ patched${NC}"
+  else
+    echo -e "  toolIconMapping         ${RED}✗ not patched${NC}"
+    installed=false
+  fi
+
+  if grep -q '"diff"' "$found_repo/ui/desktop/package.json" 2>/dev/null; then
+    echo -e "  package.json (dep)      ${GREEN}✓ added${NC}"
+  else
+    echo -e "  package.json (dep)      ${RED}✗ missing${NC}"
+    installed=false
+  fi
+
+  if [ -f "$found_repo/ui/desktop/node_modules/diff/package.json" ]; then
+    local ver=$(grep '"version"' "$found_repo/ui/desktop/node_modules/diff/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+    echo -e "  node_modules/diff       ${GREEN}✓ installed${NC} (v${ver})"
+  else
+    echo -e "  node_modules/diff       ${RED}✗ missing${NC}"
+    installed=false
+  fi
+
+  if [ -d "$found_repo/ui/desktop/.diff-extension-backup" ]; then
+    echo -e "  Backup                  ${GREEN}✓ present${NC}"
+  else
+    echo -e "  Backup                  ${YELLOW}○ not found${NC}"
+  fi
+
+  echo ""
+  if $installed; then
+    echo -e "${GREEN}Status: Fully installed${NC}"
+  else
+    echo -e "${YELLOW}Status: Partially installed or not installed${NC}"
+    echo "Run: goose-tools diff install $found_repo"
+  fi
+}
+
+# Main command dispatcher
+main() {
+  local cmd="${1:-help}"
+  shift || true
+
+  case "$cmd" in
+    diff)
+      local subcmd="${1:-help}"
+      shift || true
+      case "$subcmd" in
+        install)
+          exec "${SCRIPT_DIR}/diff-extension/scripts/install.sh" "$@"
+          ;;
+        uninstall)
+          exec "${SCRIPT_DIR}/diff-extension/scripts/uninstall.sh" "$@"
+          ;;
+        status)
+          diff_status "$@"
+          ;;
+        *)
+          echo -e "${RED}Unknown diff subcommand: $subcmd${NC}"
+          echo "Usage: goose-tools diff {install|uninstall|status} [path]"
+          exit 1
+          ;;
+      esac
+      ;;
+    list)
+      list_extensions
+      ;;
+    help|--help|-h)
+      print_help
+      ;;
+    *)
+      echo -e "${RED}Unknown command: $cmd${NC}"
+      echo "Run 'goose-tools help' for usage."
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
